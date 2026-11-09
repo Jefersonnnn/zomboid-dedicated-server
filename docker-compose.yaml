@@ -33,8 +33,9 @@ services:
     volumes:
       - /srv/zomboid/server:/home/steam/ZomboidDedicatedServer
       - /srv/zomboid/data:/home/steam/Zomboid
-    # 8 GB VPS: JVM heap (MAX_RAM=4g) + JVM overhead fit in this limit.
-    mem_limit: 5500m
+    # Hard cap for the whole container. Rule of thumb: MAX_RAM + ~1.5 GB
+    # (JVM threads, code cache, native buffers). 8 GB VPS: 4g heap -> 6g.
+    mem_limit: ${PZ_MEM_LIMIT:-6g}
     logging:
       driver: json-file
       options:

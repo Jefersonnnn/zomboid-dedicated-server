@@ -64,6 +64,9 @@ load_settings() {
     : "${GAME_VERSION:=public}"
     : "${UPDATE_ON_START:=false}"
     : "${MAX_RAM:=4g}"
+    # G1 grows the heap on demand. The game's default (ZGC) reserves the
+    # whole heap as shared memory up front, which exhausts small containers.
+    : "${JVM_GC:=G1GC}"
     : "${DEFAULT_PORT:=16261}"
     : "${UDP_PORT:=16262}"
     : "${STEAM_VAC:=true}"
@@ -202,10 +205,10 @@ apply_settings() {
         fi
     done
 
-    # SteamCMD "validate" restores this file, so the heap is re-applied on
-    # every start.
-    python3 "$PZCONFIG" jvm-heap "$JVM_CONFIG" "$MAX_RAM" \
-        || warn "Could not set the JVM heap to ${MAX_RAM}."
+    # SteamCMD "validate" restores this file, so the JVM settings are
+    # re-applied on every start.
+    python3 "$PZCONFIG" jvm "$JVM_CONFIG" --heap "$MAX_RAM" --gc "$JVM_GC" \
+        || warn "Could not apply JVM settings (heap ${MAX_RAM}, GC ${JVM_GC})."
 }
 
 # ------------------------------------------------------------------- main --

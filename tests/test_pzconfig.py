@@ -72,6 +72,33 @@ class TestSetJvmHeap:
             pzconfig.set_jvm_heap({}, "4g")
 
 
+class TestSetJvmGc:
+    def test_switches_zgc_to_g1_and_drops_zgc_tuning(self):
+        config = {"vmArgs": ["-Xmx4g", "-XX:+UseZGC", "-XX:+ZGenerational",
+                             "-XX:ZUncommitDelay=300", "-Dfoo=1", "-XX:-OmitStackTraceInFastThrow"]}
+        assert pzconfig.set_jvm_gc(config, "G1GC")
+        assert config["vmArgs"] == ["-Xmx4g", "-XX:+UseG1GC", "-Dfoo=1",
+                                    "-XX:-OmitStackTraceInFastThrow"]
+
+    def test_keeps_zgc_tuning_when_zgc_selected(self):
+        config = {"vmArgs": ["-Xmx4g", "-XX:+UseG1GC", "-XX:+ZGenerational"]}
+        assert pzconfig.set_jvm_gc(config, "ZGC")
+        assert config["vmArgs"] == ["-Xmx4g", "-XX:+UseZGC", "-XX:+ZGenerational"]
+
+    def test_no_change_when_already_selected(self):
+        config = {"vmArgs": ["-Xmx4g", "-XX:+UseG1GC", "-Dfoo=1"]}
+        assert not pzconfig.set_jvm_gc(config, "G1GC")
+
+    def test_inserts_at_front_without_heap_flag(self):
+        config = {"vmArgs": ["-Dfoo=1"]}
+        assert pzconfig.set_jvm_gc(config, "G1GC")
+        assert config["vmArgs"] == ["-XX:+UseG1GC", "-Dfoo=1"]
+
+    def test_rejects_unknown_gc(self):
+        with pytest.raises(ValueError):
+            pzconfig.set_jvm_gc({"vmArgs": []}, "CMS")
+
+
 class TestCli:
     def test_ini_set_writes_file_and_keeps_mode(self, tmp_path):
         ini = tmp_path / "server.ini"
@@ -87,11 +114,18 @@ class TestCli:
         assert pzconfig.main(["ini-set", str(ini), "Nope", "1"]) == pzconfig.EXIT_KEY_NOT_FOUND
         assert ini.read_text() == INI
 
-    def test_jvm_heap_cli(self, tmp_path):
+    def test_jvm_cli_sets_heap_and_gc_in_one_write(self, tmp_path):
         cfg = tmp_path / "ProjectZomboid64.json"
-        cfg.write_text(json.dumps({"mainClass": "x", "vmArgs": ["-Xmx16g"]}))
-        assert pzconfig.main(["jvm-heap", str(cfg), "4g"]) == 0
-        assert json.loads(cfg.read_text())["vmArgs"] == ["-Xmx4g"]
+        cfg.write_text(json.dumps({"mainClass": "x", "vmArgs": ["-Xmx16g", "-XX:+UseZGC"]}))
+        assert pzconfig.main(["jvm", str(cfg), "--heap", "4g", "--gc", "G1GC"]) == 0
+        data = json.loads(cfg.read_text())
+        assert data["vmArgs"] == ["-Xmx4g", "-XX:+UseG1GC"]
+        assert data["mainClass"] == "x"
+
+    def test_jvm_cli_requires_an_option(self, tmp_path):
+        cfg = tmp_path / "ProjectZomboid64.json"
+        cfg.write_text(json.dumps({"vmArgs": []}))
+        assert pzconfig.main(["jvm", str(cfg)]) == pzconfig.EXIT_ERROR
 
     def test_missing_file_is_error(self, tmp_path):
-        assert pzconfig.main(["jvm-heap", str(tmp_path / "x.json"), "4g"]) == pzconfig.EXIT_ERROR
+        assert pzconfig.main(["jvm", str(tmp_path / "x.json"), "--heap", "4g"]) == pzconfig.EXIT_ERROR

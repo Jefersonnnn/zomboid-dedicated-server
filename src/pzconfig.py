@@ -6,7 +6,9 @@
 
 Subcommands:
     ini-set  <ini_file> <key> <value>   Replace an existing ``key=value`` line.
-    jvm-heap <json_file> <size>         Set ``-Xmx`` in ProjectZomboid64.json.
+    jvm <json_file> [--heap SIZE] [--gc NAME]
+                                        Set ``-Xmx`` and/or the garbage collector
+                                        in ProjectZomboid64.json (one write).
 
 Design rules:
     * Files are edited in place, preserving every other line untouched
@@ -36,6 +38,12 @@ EXIT_KEY_NOT_FOUND = 2
 
 HEAP_SIZE_PATTERN = re.compile(r"^[1-9][0-9]*[mMgG]$")
 XMX_PREFIX = "-Xmx"
+
+SUPPORTED_GCS = ("G1GC", "ZGC", "ParallelGC", "SerialGC", "ShenandoahGC")
+GC_SELECTOR_PATTERN = re.compile(r"^-XX:\+Use(" + "|".join(SUPPORTED_GCS) + r")$")
+# ZGC-only tuning flags (e.g. -XX:+ZGenerational, -XX:ZUncommitDelay=300);
+# the JVM refuses to start with them when another collector is selected.
+ZGC_TUNING_PATTERN = re.compile(r"^-XX:[+-]?Z[A-Z][A-Za-z]*")
 
 
 class KeyNotFoundError(LookupError):
@@ -77,15 +85,19 @@ def set_ini_value(text: str, key: str, value: str) -> tuple[str, bool]:
     raise KeyNotFoundError(key)
 
 
+def _vm_args(config: dict) -> list:
+    vm_args = config.get("vmArgs")
+    if not isinstance(vm_args, list):
+        raise ValueError("'vmArgs' list not found in JVM config.")
+    return vm_args
+
+
 def set_jvm_heap(config: dict, size: str) -> bool:
     """Set the ``-Xmx`` entry in ``config["vmArgs"]``; return whether it changed."""
     if not HEAP_SIZE_PATTERN.match(size):
         raise ValueError(f"Invalid heap size '{size}' (expected e.g. 4g or 4096m).")
 
-    vm_args = config.get("vmArgs")
-    if not isinstance(vm_args, list):
-        raise ValueError("'vmArgs' list not found in JVM config.")
-
+    vm_args = _vm_args(config)
     wanted = f"{XMX_PREFIX}{size}"
     others = [arg for arg in vm_args if not str(arg).startswith(XMX_PREFIX)]
     current = [arg for arg in vm_args if str(arg).startswith(XMX_PREFIX)]
@@ -93,6 +105,34 @@ def set_jvm_heap(config: dict, size: str) -> bool:
         return False
 
     config["vmArgs"] = [wanted, *others]
+    return True
+
+
+def set_jvm_gc(config: dict, gc: str) -> bool:
+    """Select the garbage collector in ``config["vmArgs"]``.
+
+    Removes any other collector selector and, unless ZGC is chosen, the
+    ZGC-only tuning flags. Every other argument is kept in order.
+    Returns whether the arguments changed.
+    """
+    if gc not in SUPPORTED_GCS:
+        raise ValueError(f"Unsupported GC '{gc}' (choose from {', '.join(SUPPORTED_GCS)}).")
+
+    vm_args = _vm_args(config)
+    wanted = f"-XX:+Use{gc}"
+
+    def keep(arg: str) -> bool:
+        if GC_SELECTOR_PATTERN.match(arg):
+            return False
+        return gc == "ZGC" or not ZGC_TUNING_PATTERN.match(arg)
+
+    kept = [arg for arg in vm_args if keep(str(arg))]
+    heap_index = next((i for i, a in enumerate(kept) if str(a).startswith(XMX_PREFIX)), -1)
+    new_args = [*kept[: heap_index + 1], wanted, *kept[heap_index + 1:]]
+    if new_args == vm_args:
+        return False
+
+    config["vmArgs"] = new_args
     return True
 
 
@@ -110,13 +150,22 @@ def cmd_ini_set(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def cmd_jvm_heap(args: argparse.Namespace) -> int:
+def cmd_jvm(args: argparse.Namespace) -> int:
+    if args.heap is None and args.gc is None:
+        print("Nothing to do: pass --heap and/or --gc.", file=sys.stderr)
+        return EXIT_ERROR
+
     path = Path(args.file)
     config = json.loads(path.read_text(encoding="utf-8"))
-    changed = set_jvm_heap(config, args.size)
-    if changed:
+    changes = []
+    if args.heap is not None and set_jvm_heap(config, args.heap):
+        changes.append(f"heap={args.heap}")
+    if args.gc is not None and set_jvm_gc(config, args.gc):
+        changes.append(f"gc={args.gc}")
+    if changes:
         atomic_write(path, json.dumps(config, indent=4) + "\n")
-    print(f"JVM heap {args.size}: {'updated' if changed else 'unchanged'}")
+    print(f"JVM config: {', '.join(changes) if changes else 'unchanged'}")
+    print(f"JVM vmArgs: {' '.join(map(str, config['vmArgs']))}")
     return EXIT_OK
 
 
@@ -130,10 +179,11 @@ def build_parser() -> argparse.ArgumentParser:
     ini.add_argument("value")
     ini.set_defaults(handler=cmd_ini_set)
 
-    heap = sub.add_parser("jvm-heap", help="set -Xmx in ProjectZomboid64.json")
-    heap.add_argument("file")
-    heap.add_argument("size")
-    heap.set_defaults(handler=cmd_jvm_heap)
+    jvm = sub.add_parser("jvm", help="set heap and/or GC in ProjectZomboid64.json")
+    jvm.add_argument("file")
+    jvm.add_argument("--heap", help="maximum heap, e.g. 4g or 4096m")
+    jvm.add_argument("--gc", choices=SUPPORTED_GCS, help="garbage collector")
+    jvm.set_defaults(handler=cmd_jvm)
     return parser
 
 

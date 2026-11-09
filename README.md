@@ -15,7 +15,8 @@ Fork de [Renegade-Master/zomboid-dedicated-server](https://github.com/Renegade-M
 | Primeiro start: mata o servidor após 60 s fixos | Espera os arquivos de config aparecerem e encerra com `quit` |
 | Variáveis sobrescrevem o `.ini` sempre (inclusive com padrões) | Só sobrescrevem se a variável estiver **definida** |
 | Reescreve o `.ini` inteiro e injeta `[ServerConfig]` | Edita só a linha da chave; avisa se a chave não existir (B42) |
-| `sed` no `-XX:+Use*` podia apagar outras flags da JVM | Ajusta apenas o `-Xmx` via JSON |
+| `sed` no `-XX:+Use*` podia apagar outras flags da JVM | Ajusta `-Xmx` e o coletor via JSON, preservando as demais flags |
+| ZGC (padrão do jogo) reserva o heap inteiro de saída | G1 por padrão (`JVM_GC`): o heap cresce sob demanda |
 | Pastas no host com dono errado → erro de permissão | Entrypoint corrige o dono e roda o jogo como `steam` (UID 1000) |
 | Porta RCON 27015 publicada | Sem RCON; comandos via `pz-console` |
 
@@ -44,7 +45,9 @@ Sem Dokploy: `cp .env.example .env && docker compose up -d --build`.
 Veja os comentários em [`.env.example`](.env.example). Resumo:
 
 - **Sempre aplicadas:** `ADMIN_PASSWORD` (obrigatória), `ADMIN_USERNAME`,
-  `SERVER_NAME`, `MAX_RAM`, `GAME_VERSION`, `UPDATE_ON_START`.
+  `SERVER_NAME`, `MAX_RAM`, `JVM_GC`, `GAME_VERSION`, `UPDATE_ON_START`.
+- **Compose:** `PZ_MEM_LIMIT` (limite de memória do container; mantenha
+  ≥ `MAX_RAM` + ~1,5 GB), `TZ`.
 - **Sobrescrevem o `.ini` só se definidas:** `SERVER_DISPLAY_NAME`→`PublicName`,
   `SERVER_PASSWORD`→`Password`, `MAX_PLAYERS`→`MaxPlayers`,
   `PUBLIC_SERVER`→`Open`, `LIST_IN_BROWSER`→`Public`,
