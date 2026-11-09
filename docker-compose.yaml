@@ -1,64 +1,42 @@
 #
-#  Project Zomboid Dedicated Server using SteamCMD Docker Image.
-#  Copyright (C) 2021-2022 Renegade-Master [renegade.master.dev@protonmail.com]
+#  Project Zomboid Build 42 dedicated server - Docker Compose (Dokploy-ready).
+#  GPL-3.0 (see LICENSE).
 #
-#  This program is free software: you can redistribute it and/or modify
-#  it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation, either version 3 of the License, or
-#  (at your option) any later version.
+#  Settings come from the .env file (in Dokploy: the "Environment" tab).
+#  See .env.example for every variable and its meaning.
 #
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
+#  Host folders (created automatically, owned by UID 1000):
+#    /srv/zomboid/server  -> game installation (rebuildable, ~GBs)
+#    /srv/zomboid/data    -> configs, world saves, logs, mods (BACK THIS UP)
 #
-#  You should have received a copy of the GNU General Public License
-#  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
-
-version: "3.8"
 
 services:
-  zomboid-dedicated-server:
+  zomboid:
     build:
       context: .
       dockerfile: docker/zomboid-dedicated-server.Dockerfile
-    image: "docker.io/renegademaster/zomboid-dedicated-server:latest"
-    container_name: zomboid-dedicated-server
-    restart: "no"
+    image: zomboid-dedicated-server:local
+    container_name: zomboid
+    restart: unless-stopped
+    # Time for the in-game "quit" (world save) before Docker kills the
+    # process. Must be larger than SHUTDOWN_TIMEOUT.
+    stop_grace_period: 2m
+    env_file:
+      - path: .env
+        required: false
     environment:
-      - "ADMIN_PASSWORD=changeme"
-      - "ADMIN_USERNAME=superuser"
-      - "AUTOSAVE_INTERVAL=15"
-      - "BIND_IP=0.0.0.0"
-      - "DEFAULT_PORT=16261"
-      - "GAME_VERSION=public"
-      - "GC_CONFIG=ZGC"
-      - "MAP_NAMES=Muldraugh, KY"
-      - "MAX_PLAYERS=16"
-      - "MAX_RAM=4096m"
-      - "MOD_NAMES="
-      - "MOD_WORKSHOP_IDS="
-      - "PAUSE_ON_EMPTY=true"
-      - "PUBLIC_SERVER=true"
-      - "RCON_PASSWORD=changeme_rcon"
-      - "RCON_PORT=27015"
-      - "SERVER_NAME=ZomboidServer"
-      - "SERVER_PASSWORD="
-      - "STEAM_VAC=true"
-      - "UDP_PORT=16262"
-      - "USE_STEAM=true"
-      - "TZ=UTC"
+      TZ: ${TZ:-America/Sao_Paulo}
+    # Game traffic goes straight to the host: no Traefik/HTTP proxy.
     ports:
-      - target: 16261
-        published: 16261
-        protocol: udp
-      - target: 16262
-        published: 16262
-        protocol: udp
-      - target: 27015
-        published: 27015
-        protocol: tcp
+      - "16261:16261/udp"
+      - "16262:16262/udp"
     volumes:
-      - ./ZomboidDedicatedServer:/home/steam/ZomboidDedicatedServer
-      - ./ZomboidConfig:/home/steam/Zomboid/
+      - /srv/zomboid/server:/home/steam/ZomboidDedicatedServer
+      - /srv/zomboid/data:/home/steam/Zomboid
+    # 8 GB VPS: JVM heap (MAX_RAM=4g) + JVM overhead fit in this limit.
+    mem_limit: 5500m
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
