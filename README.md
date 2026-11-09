@@ -47,7 +47,9 @@ Veja os comentários em [`.env.example`](.env.example). Resumo:
 - **Sempre aplicadas:** `ADMIN_PASSWORD` (obrigatória), `ADMIN_USERNAME`,
   `SERVER_NAME`, `MAX_RAM`, `JVM_GC`, `GAME_VERSION`, `UPDATE_ON_START`.
 - **Compose:** `PZ_MEM_LIMIT` (limite de memória do container; mantenha
-  ≥ `MAX_RAM` + ~1,5 GB), `TZ`.
+  ≥ `MAX_RAM` + ~1,5 GB), `PZ_CPUS` (limite de CPU; padrão 1.5, deixe
+  sempre menos que o total de núcleos do host), `PZ_CPU_SHARES` (prioridade
+  de CPU; padrão 512, metade dos demais containers), `TZ`.
 - **Sobrescrevem o `.ini` só se definidas:** `SERVER_DISPLAY_NAME`→`PublicName`,
   `SERVER_PASSWORD`→`Password`, `MAX_PLAYERS`→`MaxPlayers`,
   `PUBLIC_SERVER`→`Open`, `LIST_IN_BROWSER`→`Public`,

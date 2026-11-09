@@ -36,6 +36,13 @@ services:
     # Hard cap for the whole container. Rule of thumb: MAX_RAM + ~1.5 GB
     # (JVM threads, code cache, native buffers). 8 GB VPS: 4g heap -> 6g.
     mem_limit: ${PZ_MEM_LIMIT:-6g}
+    # CPU cap: install, updates and world generation can saturate every
+    # core and starve other services (Dokploy panel, proxies, other apps).
+    # 1.5 of 2 vCPU always leaves headroom; normal 4-player play stays below.
+    cpus: ${PZ_CPUS:-1.5}
+    # Lower scheduling weight (default 1024): under contention, other
+    # containers are served first.
+    cpu_shares: ${PZ_CPU_SHARES:-512}
     logging:
       driver: json-file
       options:
