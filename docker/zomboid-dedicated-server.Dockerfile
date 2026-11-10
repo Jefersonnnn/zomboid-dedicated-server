@@ -49,6 +49,11 @@ USER root
 COPY --chown=root:root --chmod=755 src/entrypoint.sh src/run_server.sh src/pz-console /usr/local/bin/
 COPY --chown=root:root --chmod=644 src/pzconfig.py /usr/local/lib/pzconfig.py
 
+# Server console pipe, shared by run_server.sh and pz-console. Kept out of
+# /tmp: with fs.protected_fifos (Ubuntu default) even root cannot write to
+# another user's FIFO in a sticky world-writable directory.
+ENV PZ_CONSOLE_FIFO=/home/steam/.run/console.fifo
+
 EXPOSE 16261/udp 16262/udp
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD []

@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-readonly CONSOLE_FIFO="/tmp/pz-console.fifo"
+readonly CONSOLE_FIFO="${PZ_CONSOLE_FIFO:-/home/steam/.run/console.fifo}"
 
 if [[ $# -eq 0 ]]; then
     echo "Usage: pz-console <command...>" >&2

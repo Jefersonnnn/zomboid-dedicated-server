@@ -29,7 +29,7 @@ set -Eeuo pipefail
 readonly APP_ID="380870"
 readonly INSTALL_DIR="${HOME}/ZomboidDedicatedServer"
 readonly DATA_DIR="${HOME}/Zomboid"
-readonly CONSOLE_FIFO="/tmp/pz-console.fifo"
+readonly CONSOLE_FIFO="${PZ_CONSOLE_FIFO:-${HOME}/.run/console.fifo}"
 readonly PZCONFIG="/usr/local/lib/pzconfig.py"
 readonly STEAMCMD_RETRIES=3
 
@@ -133,6 +133,7 @@ start_server() {
 
     # The server reads console commands from stdin. Feeding it from a FIFO
     # lets us (and `pz-console`) send commands such as "quit" at any time.
+    mkdir -p "$(dirname "$CONSOLE_FIFO")"
     rm -f "$CONSOLE_FIFO"
     mkfifo -m 600 "$CONSOLE_FIFO"
     exec 3<>"$CONSOLE_FIFO"
