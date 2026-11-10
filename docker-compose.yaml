@@ -5,9 +5,10 @@
 #  Settings come from the .env file (in Dokploy: the "Environment" tab).
 #  See .env.example for every variable and its meaning.
 #
-#  Host folders (created automatically, owned by UID 1000):
-#    /srv/zomboid/server  -> game installation (rebuildable, ~GBs)
-#    /srv/zomboid/data    -> configs, world saves, logs, mods (BACK THIS UP)
+#  Host folders (created automatically, owned by UID 1000). Defaults below;
+#  override with PZ_SERVER_DIR / PZ_DATA_DIR:
+#    /srv/zomboid/server  -> game installation + Workshop mods (rebuildable)
+#    /srv/zomboid/data    -> configs, world saves, accounts, logs (BACK THIS UP)
 #
 
 services:
@@ -31,8 +32,8 @@ services:
       - "16261:16261/udp"
       - "16262:16262/udp"
     volumes:
-      - /srv/zomboid/server:/home/steam/ZomboidDedicatedServer
-      - /srv/zomboid/data:/home/steam/Zomboid
+      - ${PZ_SERVER_DIR:-/srv/zomboid/server}:/home/steam/ZomboidDedicatedServer
+      - ${PZ_DATA_DIR:-/srv/zomboid/data}:/home/steam/Zomboid
     # Hard cap for the whole container. Rule of thumb: MAX_RAM + ~1.5 GB
     # (JVM threads, code cache, native buffers). 8 GB VPS: 4g heap -> 6g.
     mem_limit: ${PZ_MEM_LIMIT:-6g}

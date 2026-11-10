@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+#
+#  pz-backup - backup and restore of the Project Zomboid server data.
+#  Runs on the Docker HOST (not inside the container). GPL-3.0 (see LICENSE).
+#
+#  Usage:
+#    pz-backup create              Stop the server (world saved), archive, start again
+#    pz-backup list                List existing backups
+#    pz-backup restore FILE [--yes]
+#                                  Replace the server data with FILE. The current
+#                                  data is kept aside, never deleted.
+#
+#  Settings (environment variables):
+#    PZ_CONTAINER      container name                 (default: zomboid)
+#    PZ_DATA_DIR       server data folder on the host (default: /srv/zomboid/data)
+#    PZ_BACKUP_DIR     where archives are stored      (default: /srv/zomboid/backups)
+#    PZ_BACKUP_KEEP    archives kept by "create"      (default: 7)
+#    PZ_WARN_SECONDS   in-game warning before a stop  (default: 30, 0 disables)
+#    PZ_STOP_TIMEOUT   seconds allowed for the save   (default: 150)
+#
+
+set -Eeuo pipefail
+
+readonly PZ_CONTAINER="${PZ_CONTAINER:-zomboid}"
+readonly PZ_DATA_DIR="${PZ_DATA_DIR:-/srv/zomboid/data}"
+readonly PZ_BACKUP_DIR="${PZ_BACKUP_DIR:-/srv/zomboid/backups}"
+readonly PZ_BACKUP_KEEP="${PZ_BACKUP_KEEP:-7}"
+readonly PZ_WARN_SECONDS="${PZ_WARN_SECONDS:-30}"
+readonly PZ_STOP_TIMEOUT="${PZ_STOP_TIMEOUT:-150}"
+
+readonly ARCHIVE_PREFIX="pz-backup-"
+readonly ARCHIVE_SUFFIX=".tar.gz"
+# Rebuildable or log-only folders: left out to keep archives small.
+readonly EXCLUDES=(--exclude=./Logs --exclude=./backups)
+
+RESTART_ON_EXIT="false"
+
+log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
+die() { log "ERROR: $*" >&2; exit 1; }
+
+usage() {
+    sed -n '3,22p' "$0" | sed 's/^#  \{0,1\}//'
+}
+
+# ------------------------------------------------------------ container --
+
+require_prerequisites() {
+    [[ "$(id -u)" -eq 0 ]] || die "Run as root (needs Docker and full read access to the data)."
+    command -v docker >/dev/null || die "docker not found."
+    docker inspect "$PZ_CONTAINER" >/dev/null 2>&1 || die "Container '$PZ_CONTAINER' not found."
+}
+
+is_running() {
+    [[ "$(docker inspect -f '{{.State.Running}}' "$PZ_CONTAINER" 2>/dev/null)" == "true" ]]
+}
+
+warn_players() {
+    local message="$1"
+    ((PZ_WARN_SECONDS > 0)) || return 0
+    if docker exec "$PZ_CONTAINER" pz-console "servermsg \"${message}\"" >/dev/null 2>&1; then
+        log "Players warned; waiting ${PZ_WARN_SECONDS}s."
+        sleep "$PZ_WARN_SECONDS"
+    fi
+}
+
+# Graceful stop: the container sends "quit" to the game, which saves the world.
+stop_server() {
+    log "Stopping '$PZ_CONTAINER' (world save, up to ${PZ_STOP_TIMEOUT}s)..."
+    docker stop -t "$PZ_STOP_TIMEOUT" "$PZ_CONTAINER" >/dev/null
+    RESTART_ON_EXIT="true"
+}
+
+start_server() {
+    [[ "$RESTART_ON_EXIT" == "true" ]] || return 0
+    log "Starting '$PZ_CONTAINER'..."
+    docker start "$PZ_CONTAINER" >/dev/null
+    RESTART_ON_EXIT="false"
+}
+
+# Whatever happens (error, Ctrl+C), a server we stopped is started again.
+trap start_server EXIT
+
+# -------------------------------------------------------------- archive --
+
+list_archives() {
+    find "$PZ_BACKUP_DIR" -maxdepth 1 -type f \
+        -name "${ARCHIVE_PREFIX}*${ARCHIVE_SUFFIX}" -printf '%T@ %p\n' 2>/dev/null \
+        | sort -rn | cut -d' ' -f2-
+}
+
+prune_archives() {
+    local old
+    list_archives | tail -n "+$((PZ_BACKUP_KEEP + 1))" | while read -r old; do
+        log "Removing old backup: $(basename "$old")"
+        rm -f -- "$old"
+    done
+}
+
+verify_archive() {
+    local file="$1"
+    tar -tzf "$file" >/dev/null 2>&1 || die "Archive is corrupt or unreadable: $file"
+    tar -tzf "$file" | grep -q '^\./Server/' || die "Archive has no Server/ folder: $file"
+}
+
+# ------------------------------------------------------------- commands --
+
+cmd_create() {
+    require_prerequisites
+    [[ -d "$PZ_DATA_DIR/Server" ]] || die "No server data in $PZ_DATA_DIR."
+    mkdir -p "$PZ_BACKUP_DIR"
+
+    local name final partial
+    name="${ARCHIVE_PREFIX}$(date '+%Y%m%d-%H%M%S')${ARCHIVE_SUFFIX}"
+    final="$PZ_BACKUP_DIR/$name"
+    partial="$final.partial"
+
+    if is_running; then
+        warn_players "Backup: servidor reinicia em ${PZ_WARN_SECONDS}s"
+        stop_server
+    else
+        log "Server already stopped: archiving without stopping."
+    fi
+
+    log "Archiving $PZ_DATA_DIR..."
+    if ! tar "${EXCLUDES[@]}" -C "$PZ_DATA_DIR" -czf "$partial" .; then
+        rm -f -- "$partial"
+        die "Archiving failed (disk full?). No backup was created."
+    fi
+    start_server
+
+    verify_archive "$partial"
+    mv -- "$partial" "$final"
+    log "Backup ready: $final ($(du -h "$final" | cut -f1))"
+
+    prune_archives
+}
+
+cmd_list() {
+    local file
+    list_archives | while read -r file; do
+        printf '%s  %6s  %s\n' "$(date -r "$file" '+%F %T')" "$(du -h "$file" | cut -f1)" "$file"
+    done
+}
+
+cmd_restore() {
+    local file="${1:-}" confirm="${2:-}"
+    [[ -n "$file" ]] || die "Usage: pz-backup restore FILE [--yes]"
+    [[ -f "$file" ]] || die "File not found: $file"
+    require_prerequisites
+    verify_archive "$file"
+
+    local aside
+    aside="${PZ_DATA_DIR}.before-restore-$(date '+%Y%m%d-%H%M%S')"
+
+    cat <<EOF
+Restore plan:
+  1. Stop '$PZ_CONTAINER' (current world is saved first)
+  2. Move current data   $PZ_DATA_DIR
+                    to   $aside   (kept, not deleted)
+  3. Extract             $file
+  4. Start '$PZ_CONTAINER'
+EOF
+    if [[ "$confirm" != "--yes" ]]; then
+        read -r -p "Proceed? [y/N] " answer
+        [[ "$answer" =~ ^[yYsS]$ ]] || die "Cancelled."
+    fi
+
+    if is_running; then
+        warn_players "Restauracao de backup: servidor reinicia em ${PZ_WARN_SECONDS}s"
+        stop_server
+    fi
+
+    mv -- "$PZ_DATA_DIR" "$aside"
+    mkdir -p "$PZ_DATA_DIR"
+    if ! tar --same-owner -xzf "$file" -C "$PZ_DATA_DIR"; then
+        # Never start the game on half-extracted data: put the old data back.
+        rm -rf -- "$PZ_DATA_DIR"
+        mv -- "$aside" "$PZ_DATA_DIR"
+        die "Extraction failed; previous data put back unchanged."
+    fi
+    start_server
+
+    log "Restored from $(basename "$file")."
+    log "Previous data kept in $aside - delete it once the world looks right."
+}
+
+main() {
+    local command="${1:-}"
+    shift || true
+    case "$command" in
+        create)  cmd_create ;;
+        list)    cmd_list ;;
+        restore) cmd_restore "$@" ;;
+        -h|--help|help|"") usage ;;
+        *) usage >&2; exit 2 ;;
+    esac
+}
+
+main "$@"
