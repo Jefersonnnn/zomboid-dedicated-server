@@ -5,10 +5,14 @@
 #  Settings come from the .env file (in Dokploy: the "Environment" tab).
 #  See .env.example for every variable and its meaning.
 #
-#  Host folders (created automatically, owned by UID 1000). Defaults below;
+#  Host folders (owned by UID 1000). Defaults below;
 #  override with PZ_SERVER_DIR / PZ_DATA_DIR:
-#    /srv/zomboid/server  -> game installation + Workshop mods (rebuildable)
+#    /srv/zomboid/server  -> game installation + Workshop mods (rebuildable,
+#                            plain bind mount, created automatically)
 #    /srv/zomboid/data    -> configs, world saves, accounts, logs (BACK THIS UP)
+#                            Mounted through the named volume "pz_data" (a bind
+#                            to this folder) so Dokploy Volume Backups can see it.
+#                            This folder must already exist on the host.
 #
 
 services:
@@ -33,7 +37,7 @@ services:
       - "16262:16262/udp"
     volumes:
       - ${PZ_SERVER_DIR:-/srv/zomboid/server}:/home/steam/ZomboidDedicatedServer
-      - ${PZ_DATA_DIR:-/srv/zomboid/data}:/home/steam/Zomboid
+      - pz_data:/home/steam/Zomboid
     # Hard cap for the whole container. Rule of thumb: MAX_RAM + ~1.5 GB
     # (JVM threads, code cache, native buffers). 8 GB VPS: 4g heap -> 6g.
     mem_limit: ${PZ_MEM_LIMIT:-6g}
@@ -49,3 +53,12 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
+
+# Named volume over the existing host folder: no data copy, no chown.
+volumes:
+  pz_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PZ_DATA_DIR:-/srv/zomboid/data}
