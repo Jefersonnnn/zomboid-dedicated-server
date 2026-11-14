@@ -51,7 +51,7 @@ serviços. Para menos RAM, reduza `MAX_RAM` e `PZ_MEM_LIMIT` juntos
 ## Painel de controle
 
 O serviço `panel` roda o
-[Zomboid Control Panel](https://github.com/fpsacha/zomboid-control-panel)
+[Zomboid Control Panel](https://github.com/Jefersonnnn/zomboid-control-panel)
 (MIT): console, jogadores, mods, configuração, agendamentos, backups e mapa
 no navegador. Ele fala com o jogo por **RCON** na rede interna do compose
 (`zomboid:27015`, nunca publicada no host) e liga/desliga o container pela
