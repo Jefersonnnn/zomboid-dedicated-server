@@ -146,6 +146,14 @@ comandos de admin no chat (`/help`).
 
 Todas as variáveis estão comentadas em [`.env.example`](.env.example).
 
+> **Senhas: use só letras e números** (`openssl rand -hex 16`). No
+> Environment do Dokploy / `.env`, o `#` inicia um comentário e tudo depois
+> dele é descartado sem aviso: `abc#def` vira `abc`, e a senha completa nunca
+> funciona (no jogo ou no RCON do painel). Valores com `=`, quebra de linha
+> ou espaço no final também quebram a linha do `.ini`: o servidor **não
+> grava** esses valores e mostra um `WARNING` no log. Se precisar de
+> símbolos, coloque o valor entre aspas duplas: `RCON_PASSWORD="a#b"`.
+
 **Sempre aplicadas:** `ADMIN_PASSWORD` (obrigatória), `ADMIN_USERNAME`,
 `SERVER_NAME`, `MAX_RAM`, `JVM_GC`, `GAME_VERSION`, `UPDATE_ON_START`.
 

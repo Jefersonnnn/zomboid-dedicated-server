@@ -198,13 +198,32 @@ generate_initial_config() {
 
 # ----------------------------------------------------------------- config --
 
+# Prints why the game would read a different value than $1 from a
+# "Key=value" line, or nothing when the value is safe. The game cuts a value
+# at the first "=" and at a line break, and trims blanks off the end.
+ini_value_problem() {
+    local value="$1"
+    case "$value" in
+        *=*) echo 'contains "="' ;;
+        *$'\n'* | *$'\r'*) echo "contains a line break" ;;
+        *[[:space:]]) echo "ends with a space or tab" ;;
+    esac
+}
+
 apply_settings() {
-    local pair var key
+    local pair var key problem
     log "Applying settings to ${SERVER_INI}"
     for pair in "${INI_OVERRIDES[@]}"; do
         var="${pair%%:*}"
         key="${pair#*:}"
         if [[ -n "${!var+set}" ]]; then
+            problem="$(ini_value_problem "${!var}")"
+            if [[ -n "$problem" ]]; then
+                # Skip instead of writing a value the game would read back
+                # differently (e.g. a password that then never matches).
+                warn "${var} ${problem}: the game would read it differently. ${key} NOT updated (keeps its current value); change ${var}."
+                continue
+            fi
             python3 "$PZCONFIG" ini-set "$SERVER_INI" "$key" "${!var}" \
                 || warn "Could not set ${key} (from ${var})."
         fi
