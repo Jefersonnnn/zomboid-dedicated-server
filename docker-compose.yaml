@@ -58,13 +58,19 @@ services:
         max-size: "20m"
         max-file: "5"
 
-  # Zomboid Control Panel (github.com/fpsacha/zomboid-control-panel, MIT):
-  # web admin for this server. Talks to it over RCON on the internal network
-  # (host "zomboid", port 27015 - never published) and controls the container
-  # through the Docker socket. In Dokploy, add a domain to THIS service
-  # (port 3001); Traefik terminates HTTPS. No host port is published.
+  # Zomboid Control Panel - our fork github.com/Jefersonnnn/zomboid-control-panel
+  # of fpsacha/zomboid-control-panel (MIT): web admin for this server. Talks
+  # to it over RCON on the internal network (host "zomboid", port 27015 -
+  # never published) and controls the container through the Docker socket.
+  # In Dokploy, add a domain to THIS service (port 3001); Traefik terminates
+  # HTTPS. No host port is published.
   panel:
-    image: ghcr.io/fpsacha/zomboid-panel:${PANEL_VERSION:-2026.11.1}
+    # Built by the fork's "Publish Docker Image" workflow on every push to
+    # main ("main" tag). Pin a commit with PANEL_VERSION=sha-<7 chars>.
+    image: ${PANEL_IMAGE:-ghcr.io/jefersonnnn/zomboid-panel}:${PANEL_VERSION:-main}
+    # Dokploy only runs `up`, which keeps a cached "main": always pull so a
+    # redeploy picks up the latest build.
+    pull_policy: always
     container_name: zomboid-panel
     restart: unless-stopped
     depends_on:
