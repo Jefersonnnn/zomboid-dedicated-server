@@ -49,6 +49,10 @@ readonly INI_OVERRIDES=(
     "MAP_NAMES:Map"
     "DEFAULT_PORT:DefaultPort"
     "UDP_PORT:UDPPort"
+    # RCON for the control panel. Reachable only inside the Docker network
+    # (port 27015 is not published to the host).
+    "RCON_PASSWORD:RCONPassword"
+    "RCON_PORT:RCONPort"
 )
 
 SERVER_PID=""

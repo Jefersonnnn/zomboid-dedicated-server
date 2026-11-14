@@ -12,6 +12,7 @@ que salva o mundo e scripts de backup.
 - [Instalação](#instalação)
 - [Primeiro start](#primeiro-start)
 - [Conectar pelo jogo](#conectar-pelo-jogo)
+- [Painel de controle](#painel-de-controle)
 - [Configuração](#configuração)
 - [Operação: backup, restauração, atualização, mods](docs/operacao.md)
 - [O que mudou em relação ao original](#o-que-mudou-em-relação-ao-original)
@@ -40,10 +41,38 @@ serviços. Para menos RAM, reduza `MAX_RAM` e `PZ_MEM_LIMIT` juntos
 2. **Compose Type: Docker Compose** — *não* Stack. O modo Stack (Swarm)
    ignora `build`, `mem_limit` e `cpus`.
 3. Aba **Environment**: cole o conteúdo de [`.env.example`](.env.example) e
-   troque pelo menos `ADMIN_PASSWORD` e `SERVER_PASSWORD`.
-4. **Não** adicione domínio: o jogo usa UDP direto no host, não passa pelo
-   Traefik.
+   troque pelo menos `ADMIN_PASSWORD`, `SERVER_PASSWORD`, `RCON_PASSWORD`,
+   `PANEL_URL` e `DOCKER_GID`.
+4. Aba **Domains**: adicione um domínio **só para o serviço `panel`**, porta
+   **3001**, com HTTPS. O serviço `zomboid` não leva domínio: o jogo usa UDP
+   direto no host, não passa pelo Traefik.
 5. **Deploy**.
+
+## Painel de controle
+
+O serviço `panel` roda o
+[Zomboid Control Panel](https://github.com/fpsacha/zomboid-control-panel)
+(MIT): console, jogadores, mods, configuração, agendamentos, backups e mapa
+no navegador. Ele fala com o jogo por **RCON** na rede interna do compose
+(`zomboid:27015`, nunca publicada no host) e liga/desliga o container pela
+API do Docker; o `stop` continua mandando `quit`, então o mundo é salvo.
+
+Primeiro acesso:
+
+1. Pegue o token de setup: `docker logs zomboid-panel 2>&1 | grep "SETUP TOKEN"`.
+2. Abra `PANEL_URL`, cole o token e crie a conta de admin do painel.
+3. Em **Servers**, no perfil do servidor: caminho de instalação `/pz-server`,
+   pasta de dados `/zomboid`, RCON `zomboid` / `27015` / `RCON_PASSWORD`,
+   **Docker container** `zomboid`.
+4. Não use o **Setup Wizard** nem a instalação/atualização do jogo pelo
+   painel: quem instala e atualiza é o próprio container (`UPDATE_ON_START`).
+   A pasta do jogo está montada só para leitura no painel.
+
+O painel monta `/var/run/docker.sock`, o que dá controle sobre **todos** os
+containers da VPS, inclusive o Dokploy: use uma senha forte. Para abrir mão
+disso, apague a linha do socket no compose e defina
+`PANEL_DOCKER_CONTROL_ENABLED=false` (o painel continua funcionando pelo RCON,
+mas sem start/stop).
 
 ### Sem Dokploy
 
@@ -138,6 +167,7 @@ Todas as variáveis estão comentadas em [`.env.example`](.env.example).
 | `MOD_NAMES` | `Mods` |
 | `MAP_NAMES` | `Map` |
 | `DEFAULT_PORT` / `UDP_PORT` | `DefaultPort` / `UDPPort` |
+| `RCON_PASSWORD` / `RCON_PORT` | `RCONPassword` / `RCONPort` (usadas pelo painel) |
 
 Qualquer outra opção: edite `/srv/zomboid/data/Server/<SERVER_NAME>.ini` (ou
 o `_SandboxVars.lua`, para as regras do mundo) e `docker restart zomboid`.
@@ -196,7 +226,8 @@ pz-backup create             # backup (para, salva, compacta, religa)
 | ZGC (padrão do jogo) reserva o heap inteiro de saída | G1 por padrão (`JVM_GC`): o heap cresce sob demanda |
 | Sem limite de CPU | `PZ_CPUS`/`PZ_CPU_SHARES`: o servidor não trava os outros serviços |
 | Pastas no host com dono errado → erro de permissão | Entrypoint corrige o dono e roda o jogo como `steam` (UID 1000) |
-| Porta RCON 27015 publicada | Sem RCON; comandos via `pz-console` |
+| Porta RCON 27015 publicada | RCON só na rede interna, para o painel; comandos também via `pz-console` |
+| — | Painel web (Zomboid Control Panel) como serviço do mesmo compose |
 | — | Script de backup/restauração com retenção e restauração não destrutiva |
 
 ## Desenvolvimento

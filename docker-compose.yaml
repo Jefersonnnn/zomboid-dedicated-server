@@ -23,6 +23,10 @@ services:
     image: zomboid-dedicated-server:local
     container_name: zomboid
     restart: unless-stopped
+    # Lets the control panel start/stop/restart this container through the
+    # Docker API (it only acts on containers carrying this label).
+    labels:
+      zomboid-panel.managed: "true"
     # Time for the in-game "quit" (world save) before Docker kills the
     # process. Must be larger than SHUTDOWN_TIMEOUT.
     stop_grace_period: 2m
@@ -54,6 +58,71 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  # Zomboid Control Panel (github.com/fpsacha/zomboid-control-panel, MIT):
+  # web admin for this server. Talks to it over RCON on the internal network
+  # (host "zomboid", port 27015 - never published) and controls the container
+  # through the Docker socket. In Dokploy, add a domain to THIS service
+  # (port 3001); Traefik terminates HTTPS. No host port is published.
+  panel:
+    image: ghcr.io/fpsacha/zomboid-panel:${PANEL_VERSION:-2026.11.1}
+    container_name: zomboid-panel
+    restart: unless-stopped
+    depends_on:
+      - zomboid
+    expose:
+      - "3001"
+    # Dokploy appends its own dokploy-network (for Traefik) when a domain is
+    # added; listing "default" keeps the panel on the network shared with the
+    # game server.
+    networks:
+      - default
+    # Group that owns /var/run/docker.sock on the host
+    # (`stat -c '%g' /var/run/docker.sock`).
+    group_add:
+      - "${DOCKER_GID:-999}"
+    environment:
+      NODE_ENV: production
+      TZ: ${TZ:-America/Sao_Paulo}
+      # Same UID as the game server: shared files keep the right owner.
+      PUID: "1000"
+      PGID: "1000"
+      PZ_SERVER_PATH: /pz-server
+      PZ_SAVE_PATH: /zomboid
+      PZ_SERVER_BAT: start-server.sh
+      RCON_HOST: zomboid
+      RCON_PORT: ${RCON_PORT:-27015}
+      RCON_PASSWORD: ${RCON_PASSWORD:-}
+      # The game process lives in another container: the panel cannot see it
+      # with pgrep, so it must not wait for it before using RCON.
+      RCON_SKIP_SERVER_CHECK: "true"
+      PANEL_DOCKER_CONTROL_ENABLED: ${PANEL_DOCKER_CONTROL_ENABLED:-true}
+      # Behind Traefik over HTTPS. Port 3001 is only reachable through the
+      # Docker networks, so trusting one proxy hop is safe here.
+      HTTPS: "true"
+      TRUST_PROXY: "1"
+      CORS_ORIGINS: ${PANEL_URL:-}
+      PANEL_AUTO_OPEN_BROWSER: "false"
+    volumes:
+      - panel_data:/app/data
+      - panel_logs:/app/logs
+      # World data, configs and logs (same volume as the game server):
+      # read/write for the config editor and backups.
+      - pz_data:/zomboid
+      # Game install is managed by the game server's entrypoint (SteamCMD):
+      # read-only so the panel cannot install/update the game on its own.
+      - ${PZ_SERVER_DIR:-/srv/zomboid/server}:/pz-server:ro
+      # Full control over every container on this host (including Dokploy):
+      # keep the panel behind a strong password. Remove this line and set
+      # PANEL_DOCKER_CONTROL_ENABLED=false to give that up.
+      - /var/run/docker.sock:/var/run/docker.sock
+    mem_limit: ${PANEL_MEM_LIMIT:-768m}
+    cpus: ${PANEL_CPUS:-0.5}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # Named volume over the existing host folder: no data copy, no chown.
 volumes:
   pz_data:
@@ -62,3 +131,6 @@ volumes:
       type: none
       o: bind
       device: ${PZ_DATA_DIR:-/srv/zomboid/data}
+  # Panel database, users, settings and its own backups.
+  panel_data:
+  panel_logs:
